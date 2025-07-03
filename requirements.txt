@@ -1,0 +1,6 @@
+# MySQL database connectors
+mysql-connector-python>=8.0.33
+PyMySQL>=1.0.3
+
+# Additional utilities for database operations
+python-dotenv>=1.0.0

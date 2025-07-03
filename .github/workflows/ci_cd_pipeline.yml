@@ -1,0 +1,134 @@
+name: Database CI/CD Pipeline
+run-name: ${{ github.actor }} is deploying database changes to Azure MySQL
+
+# Trigger the workflow on push to main branch
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Environment variables for the workflow
+env:
+  PYTHON_VERSION: '3.9'
+  MYSQL_VERSION: '8.0'
+
+jobs:
+  database-deployment:
+    runs-on: ubuntu-latest
+    
+    # Service containers for local testing
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: companydb
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+    # Step 1: Checkout the repository code
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    # Step 2: Set up Python environment
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    # Step 3: Install Python dependencies
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install mysql-connector-python pymysql
+        
+    # Step 4: Install MySQL client
+    - name: Install MySQL Client
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y mysql-client
+        
+    # Step 5: Wait for MySQL service to be ready
+    - name: Wait for MySQL
+      run: |
+        while ! mysqladmin ping -h"127.0.0.1" -P3307 --silent; do
+          echo "Waiting for MySQL to be ready..."
+          sleep 2
+        done
+        echo "MySQL is ready!"
+        
+    # Step 6: Test database connection
+    - name: Test Database Connection
+      run: |
+        mysql -h 127.0.0.1 -P 3307 -u root -ptestpassword -e "SELECT VERSION();"
+        
+    # Step 7: Execute SQL scripts using MySQL client
+    - name: Deploy Database Schema Changes
+      env:
+        DB_HOST: ${{ secrets.DB_HOST || '127.0.0.1' }}
+        DB_PORT: ${{ secrets.DB_PORT || '3307' }}
+        DB_USER: ${{ secrets.DB_ADMIN_USER || 'root' }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'testpassword' }}
+        DB_NAME: ${{ secrets.DB_NAME || 'companydb' }}
+      run: |
+        echo "Deploying database changes..."
+        mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD < add_departments.sql
+        echo "Database deployment completed successfully!"
+        
+    # Step 8: Execute Python automation script
+    - name: Run Database Automation Script
+    
+      env:
+        DB_HOST: ${{ secrets.DB_HOST || '127.0.0.1' }}
+        DB_PORT: ${{ secrets.DB_PORT || '3307' }}
+        DB_USER: ${{ secrets.DB_ADMIN_USER || 'root' }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'testpassword' }}
+        DB_NAME: ${{ secrets.DB_NAME || 'companydb' }}
+      run: |
+        echo "Running Python database automation script..."
+        python database_automation.py
+        
+    # Step 9: Verify deployment by running test queries
+    - name: Verify Database Deployment
+      env:
+        DB_HOST: ${{ secrets.DB_HOST || '127.0.0.1' }}
+        DB_PORT: ${{ secrets.DB_PORT || '3307' }}
+        DB_USER: ${{ secrets.DB_ADMIN_USER || 'root' }}
+        DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'testpassword' }}
+        DB_NAME: ${{ secrets.DB_NAME || 'companydb' }}
+      run: |
+        echo "Verifying database deployment..."
+        echo "Checking projects table:"
+        mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD $DB_NAME -e "DESCRIBE projects;"
+        echo "Checking departments table:"
+        mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD $DB_NAME -e "DESCRIBE departments;"
+        echo "Counting departments:"
+        mysql -h $DB_HOST -P $DB_PORT -u $DB_USER -p$DB_PASSWORD $DB_NAME -e "SELECT COUNT(*) as total_departments FROM departments;"
+        
+    # Step 10: Generate deployment report
+    - name: Generate Deployment Report
+      run: |
+        echo "=== Database Deployment Report ===" > deployment_report.txt
+        echo "Deployment Date: $(date)" >> deployment_report.txt
+        echo "GitHub Actor: ${{ github.actor }}" >> deployment_report.txt
+        echo "Commit SHA: ${{ github.sha }}" >> deployment_report.txt
+        echo "Branch: ${{ github.ref_name }}" >> deployment_report.txt
+        echo "Workflow Run: ${{ github.run_number }}" >> deployment_report.txt
+        echo "Status: SUCCESS" >> deployment_report.txt
+        cat deployment_report.txt
+        
+    # Step 11: Upload deployment artifacts
+    - name: Upload Deployment Report
+      if: ${{ !env.ACT }}  # Only run this step on real GitHub Actions, not act
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-report
+        path: deployment_report.txt
+        retention-days: 30

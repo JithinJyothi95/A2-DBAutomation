@@ -86,6 +86,7 @@ ansible-playbook down.yml
 | `mysql-adminer.yml` | Docker Compose stack |
 | `README.md` | This documentation |
 | `bin/act` | Local GitHub Actions runner |
+| `screenshots` | Contains all screenshots |
 
 ---
 
